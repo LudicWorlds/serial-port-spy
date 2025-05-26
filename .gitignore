@@ -180,3 +180,12 @@ UpgradeLog*.htm
 
 # Microsoft Fakes
 FakesAssemblies/
+
+# Newer versions of VS sometimes use .vsconfig and other files
+.vs/
+.vscode/
+*.vsconfig
+
+# WPF auto-generated files 
+*.g.cs
+*.g.i.cs
