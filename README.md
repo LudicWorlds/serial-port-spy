@@ -1,9 +1,10 @@
-<p align="left">
-  <img src="serial-port-spy-logo.png" alt="Serial Port Spy Logo" width="64" style="vertical-align:middle; margin-right: 12px;">
-  <span style="display:inline-block; vertical-align:middle;">
-    <strong style="font-size: 2em; line-height: 64px;">Serial Port Spy</strong>
-  </span>
-</p>
+<table>
+<tr>
+<td><img src="serial-port-spy-logo.png" width="64"></td>
+<td><h1>Serial Port Spy</h1></td>
+</tr>
+</table>
+
 
 ![Screenshot](serial-port-spy.png)
 
