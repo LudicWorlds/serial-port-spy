@@ -2,7 +2,7 @@
 
 ![Screenshot](serial-port-spy.png)
 
-**Serial Port Spy** is a simple application for reading incoming **RS232 / serial data** received via a **COM port**. A common use case is monitoring data transmitted from a microcontroller, such as an Arduino.
+**Serial Port Spy** is a simple Windows application for reading incoming **RS232 / serial data** received via a **COM port**. A common use case is monitoring data transmitted from a microcontroller, such as an Arduino.
 
 
 ## 🔧 How to Use
@@ -18,7 +18,7 @@ You can view incoming data as either:
 
 ## Technical Details
 
-The application is written in **C# / .NET Framework 4.5**, and built as a **WPF** application. It can be compiled using **Visual Studio 2020** (or newer).
+The application is written in **C# / .NET Framework 4.8**, and built as a **WPF** application. It can be compiled using **Visual Studio 2020** (or newer). It is currently Windows only.
 
 This project is released under the [MIT License](LICENSE).
 
