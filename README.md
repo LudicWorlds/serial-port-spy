@@ -21,7 +21,7 @@ You can view incoming data as either:
 
 ## Technical Details
 
-The application is written in **C# / .NET Framework 4.8**, and built as a **WPF** application. It can be compiled using **Visual Studio 2020** (or newer). It is currently Windows only.
+The application is written in **C# / .NET Framework 4.8**, and built as a **WPF** application. It can be compiled using **Visual Studio 2022** (or newer). It is currently Windows only.
 
 This project is released under the [MIT License](LICENSE).
 
