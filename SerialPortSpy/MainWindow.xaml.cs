@@ -8,14 +8,15 @@
 
 
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO.Ports;
+using System.Reflection;
 using System.Text;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
-using System.IO.Ports;
-using System.Diagnostics;
 using System.Windows.Threading;
-using System.ComponentModel;
 
 
 
@@ -56,6 +57,9 @@ namespace SerialPortSpy
             this.Loaded += OnLoaded;
             this.Closing += OnClosing;
             InitializeComponent();
+
+            var v = Assembly.GetExecutingAssembly().GetName().Version;
+            this.Title = $"Serial Port Spy - v{v.Major}.{v.Minor}";
         }
 
         private void FindCOMPorts()
