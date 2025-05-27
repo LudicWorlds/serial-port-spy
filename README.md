@@ -1,8 +1,12 @@
 <table>
-<tr>
-<td><img src="serial-port-spy-logo.png" width="64"></td>
-<td><h1>Serial Port Spy</h1></td>
-</tr>
+  <tr>
+    <td style="vertical-align: middle; padding-right: 12px;">
+      <img src="serial-port-spy-logo.png" width="64" alt="Serial Port Spy Logo">
+    </td>
+    <td style="vertical-align: middle;">
+      <h1 style="margin: 0;">Serial Port Spy</h1>
+    </td>
+  </tr>
 </table>
 
 ![Screenshot](serial-port-spy.png)
