@@ -7,9 +7,12 @@
 
 ## 🔧 How to Use
 
-1. Select the serial port you wish to read from using the **COM Port Name** dropdown.  
-2. Configure the port properties (e.g., **Baud Rate**, **Parity**, and **Stop Bits**).  
-3. Click the **Open Port** button.
+1. In the **Releases** section, go to the latest release.
+2. Download and extract: **SerialPortSpy.zip**
+3. Run: **SerialPortSpy.exe**
+4. Select the serial port you wish to read from using the **COM Port Name** dropdown.  
+5. Configure the port properties (e.g., **Baud Rate**, **Parity**, and **Stop Bits**).  
+6. Click the **Open Port** button.
 
 You can view incoming data as either:
 - **Decimal values**
