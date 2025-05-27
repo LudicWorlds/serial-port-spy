@@ -1,10 +1,4 @@
-<table>
-<tr>
-<td><img src="serial-port-spy-logo.png" width="64"></td>
-<td><h1>Serial Port Spy</h1></td>
-</tr>
-</table>
-
+# Serial Port Spy
 
 ![Screenshot](serial-port-spy.png)
 
