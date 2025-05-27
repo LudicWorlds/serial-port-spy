@@ -3,8 +3,6 @@
   <span style="font-size:2em; vertical-align:middle;"><strong>Serial Port Spy</strong></span>
 </p>
 
-# Serial Port Spy
-
 ![Screenshot](serial-port-spy.png)
 
 'Serial Port Spy' is a simple application for reading incoming RS232 / serial data, which is being received via a COM Port. A common usage, would be to monitor the data that is being transmitted from a microcontroller (such as an Arduino), for example.  
