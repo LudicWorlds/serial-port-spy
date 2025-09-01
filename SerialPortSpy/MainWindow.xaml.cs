@@ -47,6 +47,8 @@ namespace SerialPortSpy
 
         private const string READY_STATUS_MSG = "Click 'Open Port' to start reading incomming data.";
 
+        private SolidColorBrush _pinkBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F02B63"));
+
 
         //-----------------------------------------------
         // Methods
@@ -290,7 +292,7 @@ namespace SerialPortSpy
             //Switch the Text Color everytime we receive a new data 'chunk'
             if (_useAltColor)
             {
-                textRange.ApplyPropertyValue(TextElement.ForegroundProperty, Brushes.IndianRed);
+                textRange.ApplyPropertyValue(TextElement.ForegroundProperty, _pinkBrush);
             }
             else
             {
