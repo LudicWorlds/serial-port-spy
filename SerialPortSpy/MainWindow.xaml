@@ -53,9 +53,7 @@
         <TextBox Name="TextBox_Data" HorizontalAlignment="Left" Height="372" Margin="10,15.4,0,0" Grid.Row="1"  VerticalAlignment="Top" Width="665" VerticalScrollBarVisibility="Visible">
         </TextBox>
 -->
-        <ScrollViewer Name="ScrollViewer_Data" HorizontalAlignment="Left" Height="372" Margin="10,15.4,0,0" Grid.Row="1"  VerticalAlignment="Top" Width="665">
-            <TextBlock Name="TextBlock_Data" Background="White" />
-        </ScrollViewer>
+        <RichTextBox Name="TextBlock_Data" HorizontalAlignment="Left" Height="372" Margin="10,15.4,0,0" Grid.Row="1" VerticalAlignment="Top" Width="665" Background="White" IsReadOnly="True" VerticalScrollBarVisibility="Auto" />
 
        <StackPanel Orientation="Horizontal" Grid.Row="2">
             <Label Content="Status:" HorizontalAlignment="Left"   VerticalAlignment="Top" Width="45" Margin="5,0,0,0"/>

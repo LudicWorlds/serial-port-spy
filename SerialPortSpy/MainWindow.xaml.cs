@@ -8,10 +8,12 @@
 
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Ports;
 using System.Reflection;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Documents;
@@ -100,7 +102,7 @@ namespace SerialPortSpy
             //Set up text output
             this.TextBlock_Data.FontFamily = new FontFamily("Courier New");
             this.TextBlock_Data.FontSize = 12;
-            this.TextBlock_Data.TextWrapping = TextWrapping.Wrap;
+            this.TextBlock_Data.Document.PageWidth = this.TextBlock_Data.Width;
             this.TextBlock_Data.Foreground = Brushes.SteelBlue;
 
            
@@ -187,7 +189,7 @@ namespace SerialPortSpy
                 _serialPort.DiscardInBuffer();
                 _serialPort.DiscardOutBuffer();
 
-                this.TextBlock_Data.Text = "";
+                this.TextBlock_Data.Document.Blocks.Clear();
 
                 this._serialTimer.Start();
             }
@@ -286,28 +288,92 @@ namespace SerialPortSpy
                 receivedString = this._serialPort.ReadExisting();
             }
 
-            TextRange textRange = new TextRange(TextBlock_Data.ContentEnd, TextBlock_Data.ContentEnd);
-            textRange.Text = receivedString;
-
+            Run run = new Run(receivedString);
+            
             //Switch the Text Color everytime we receive a new data 'chunk'
             if (_useAltColor)
             {
-                textRange.ApplyPropertyValue(TextElement.ForegroundProperty, _pinkBrush);
+                run.Foreground = _pinkBrush;
             }
             else
             {
-                textRange.ApplyPropertyValue(TextElement.ForegroundProperty, Brushes.SteelBlue);
+                run.Foreground = Brushes.SteelBlue;
             }
 
             _useAltColor = !_useAltColor;
 
-            this.ScrollViewer_Data.UpdateLayout();
-            this.ScrollViewer_Data.ScrollToVerticalOffset(TextBlock_Data.ActualHeight);
-
-                        
-            if (TextBlock_Data.Text.Length > 12000)
+            Paragraph paragraph = TextBlock_Data.Document.Blocks.LastOrDefault() as Paragraph;
+            if (paragraph == null)
             {
-                TextBlock_Data.Text = TextBlock_Data.Text.Remove(0, 6000);
+                paragraph = new Paragraph();
+                TextBlock_Data.Document.Blocks.Add(paragraph);
+            }
+            paragraph.Inlines.Add(run);
+
+            TextBlock_Data.ScrollToEnd();
+
+            // Limit document size by removing oldest content while preserving formatting
+            var doc = TextBlock_Data.Document;
+            var textRange = new TextRange(doc.ContentStart, doc.ContentEnd);
+            if (textRange.Text.Length > 12000)
+            {
+                // Remove content from the beginning while preserving paragraph structure
+                var blocks = doc.Blocks.ToList();
+                int removedLength = 0;
+                int targetRemoval = 6000;
+                var blocksToRemove = new List<Block>();
+                
+                foreach (var block in blocks)
+                {
+                    if (removedLength >= targetRemoval) break;
+                    
+                    if (block is Paragraph para)
+                    {
+                        var inlines = para.Inlines.ToList();
+                        var inlinesToRemove = new List<Inline>();
+                        
+                        foreach (var inline in inlines)
+                        {
+                            if (removedLength >= targetRemoval) break;
+                            
+                            if (inline is Run inlineRun)
+                            {
+                                int runLength = inlineRun.Text.Length;
+                                if (removedLength + runLength <= targetRemoval)
+                                {
+                                    inlinesToRemove.Add(inlineRun);
+                                    removedLength += runLength;
+                                }
+                                else
+                                {
+                                    // Partially remove text from this run
+                                    int charsToRemove = targetRemoval - removedLength;
+                                    inlineRun.Text = inlineRun.Text.Substring(charsToRemove);
+                                    removedLength = targetRemoval;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Remove the inlines we marked for removal
+                        foreach (var inlineToRemove in inlinesToRemove)
+                        {
+                            para.Inlines.Remove(inlineToRemove);
+                        }
+                        
+                        // If paragraph is now empty, mark it for removal
+                        if (!para.Inlines.Any())
+                        {
+                            blocksToRemove.Add(para);
+                        }
+                    }
+                }
+                
+                // Remove empty blocks
+                foreach (var blockToRemove in blocksToRemove)
+                {
+                    doc.Blocks.Remove(blockToRemove);
+                }
             }
 
         }
@@ -346,7 +412,7 @@ namespace SerialPortSpy
             }
             else //Serial port is currently closed, let's open it
             {
-                this.TextBlock_Data.Text = "";
+                this.TextBlock_Data.Document.Blocks.Clear();
 
                 OpenPort();
 
