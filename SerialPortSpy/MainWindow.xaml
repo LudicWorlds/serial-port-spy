@@ -1,9 +1,7 @@
-﻿
-    
 <Window x:Class="SerialPortSpy.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Serial Port Spy" Height="500" Width="700">
+        Title="{Binding Title}" Height="500" Width="700">
     <Grid Background="#F9E1E6">
         <Grid.RowDefinitions>
             <RowDefinition Height="50"></RowDefinition>
@@ -11,64 +9,58 @@
             <RowDefinition Height="30"></RowDefinition>
         </Grid.RowDefinitions>
 
-        <StackPanel HorizontalAlignment="Left" Grid.Row="0"  Grid.RowSpan="1" VerticalAlignment="Top" Width="Auto" Orientation="Horizontal" Margin="0">
+        <StackPanel HorizontalAlignment="Left" Grid.Row="0" Grid.RowSpan="1" VerticalAlignment="Top" Width="Auto" Orientation="Horizontal" Margin="0">
             <StackPanel Orientation="Vertical" Margin="10,0">
                 <Label Content="COM Port Name:"/>
-                <ComboBox Name="ComboBox_COMPortName" Width="100" IsEnabled="False" >
-                </ComboBox>
+                <ComboBox Width="100"
+                          ItemsSource="{Binding PortNames}"
+                          SelectedItem="{Binding SelectedPortName}"
+                          IsEnabled="{Binding IsConfigEnabled}"/>
             </StackPanel>
             <StackPanel Orientation="Vertical" Margin="0,0,5,0">
                 <Label Content="Baud Rate:"/>
-                <ComboBox Name="ComboBox_BaudRate" Width="100" IsEnabled="False" IsEditable="True">
-                </ComboBox>
+                <ComboBox Width="100" IsEditable="True"
+                          ItemsSource="{Binding BaudRates}"
+                          Text="{Binding BaudRateText, UpdateSourceTrigger=PropertyChanged}"
+                          IsEnabled="{Binding IsConfigEnabled}"/>
             </StackPanel>
             <StackPanel Orientation="Vertical" Margin="0,0,5,0">
                 <Label Content="Parity:"/>
-                <ComboBox Name="ComboBox_Parity" Width="60" IsEnabled="False">
-                </ComboBox>
+                <ComboBox Width="60"
+                          ItemsSource="{Binding ParityOptions}"
+                          SelectedItem="{Binding SelectedParity}"
+                          IsEnabled="{Binding IsConfigEnabled}"/>
             </StackPanel>
             <StackPanel Orientation="Vertical" Margin="0,0,5,0">
                 <Label Content="Stop Bits:"/>
-                <ComboBox Name="ComboBox_StopBits" Width="60" IsEnabled="False" SelectedIndex="1">
-                </ComboBox>
+                <ComboBox Width="60"
+                          ItemsSource="{Binding StopBitsOptions}"
+                          SelectedItem="{Binding SelectedStopBits}"
+                          IsEnabled="{Binding IsConfigEnabled}"/>
             </StackPanel>
-            <StackPanel Orientation="Vertical" Margin="0,0,20,0"  Width="100">
-                <!--
-                <Label Content="Handshake:"/>
-                <ComboBox Name="ComboBox_Handshake" Width="100" SelectedIndex="1">
-                    <ComboBoxItem Content="None"></ComboBoxItem>
-                    <ComboBoxItem Content="RequestToSend"></ComboBoxItem>
-                </ComboBox>
-                -->
+            <StackPanel Orientation="Vertical" Margin="0,0,20,0" Width="100">
             </StackPanel>
             <StackPanel Orientation="Vertical" Margin="0,0,10,0">
                 <Label Content="Display Data As:"/>
-                <ComboBox Name="ComboBox_DisplayDataAs" Width="100" IsEnabled="False">
-                </ComboBox>
+                <ComboBox Width="100"
+                          ItemsSource="{Binding DisplayDataOptions}"
+                          SelectedItem="{Binding SelectedDisplayDataOption}"
+                          IsEnabled="{Binding IsConfigEnabled}"/>
             </StackPanel>
 
-            <Button Name="Button_TogglePort" Content="Open Port"  IsEnabled="False" HorizontalAlignment="Left" Height="40" VerticalAlignment="Bottom" Width="90" Margin="0,0,0,0" Click="Button_TogglePort_Click"/>
-        </StackPanel>
-<!--
-        <TextBox Name="TextBox_Data" HorizontalAlignment="Left" Height="372" Margin="10,15.4,0,0" Grid.Row="1"  VerticalAlignment="Top" Width="665" VerticalScrollBarVisibility="Visible">
-        </TextBox>
--->
-        <RichTextBox Name="RichTextBox_Data" HorizontalAlignment="Left" Height="372" Margin="10,15.4,0,0" Grid.Row="1" VerticalAlignment="Top" Width="665" Background="White" IsReadOnly="True" VerticalScrollBarVisibility="Auto" />
-
-       <StackPanel Orientation="Horizontal" Grid.Row="2">
-            <Label Content="Status:" HorizontalAlignment="Left"   VerticalAlignment="Top" Width="45" Margin="5,0,0,0"/>
-            <Label Name="Label_Status" Content="..." HorizontalAlignment="Left"  VerticalAlignment="Top" Width="530"/>
+            <Button Content="{Binding TogglePortButtonText}"
+                    Command="{Binding TogglePortCommand}"
+                    HorizontalAlignment="Left" Height="40" VerticalAlignment="Bottom" Width="90" Margin="0,0,0,0"/>
         </StackPanel>
 
-        <!--
-        <RichTextBox HorizontalAlignment="Left" Height="100" Margin="288,98.6,0,-149" Grid.Row="2" VerticalAlignment="Top" Width="100">
-            <FlowDocument>
-                <Paragraph>
-                    <Run Text="RichTextBox"/>
-                </Paragraph>
-            </FlowDocument>
-        </RichTextBox>
-        -->
+        <RichTextBox Name="RichTextBox_Data" HorizontalAlignment="Left" Height="372" Margin="10,15.4,0,0" Grid.Row="1" VerticalAlignment="Top" Width="665"
+                     Background="White" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
+                     FontFamily="Courier New" FontSize="12" Foreground="SteelBlue"/>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="2">
+            <Label Content="Status:" HorizontalAlignment="Left" VerticalAlignment="Top" Width="45" Margin="5,0,0,0"/>
+            <Label Content="{Binding StatusMessage}" HorizontalAlignment="Left" VerticalAlignment="Top" Width="530"/>
+        </StackPanel>
 
     </Grid>
 </Window>

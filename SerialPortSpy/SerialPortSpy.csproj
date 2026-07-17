@@ -1,23 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
     <ApplicationIcon>Assets\serial-port-spy.ico</ApplicationIcon>
-    <Version>1.1.1.1</Version>
-    <AssemblyVersion>1.1.1.1</AssemblyVersion>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
     <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
     <AppDesigner Include="Properties\" />
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
-    <PackageReference Include="System.IO.Ports" Version="9.0.8" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.0" />
   </ItemGroup>
-  <ItemGroup>
-    <Content Include="Assets\serial-port-spy.ico">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+  <!--
+    The app icon is embedded into the .exe via <ApplicationIcon> above and is not
+    loaded from disk at runtime, so it does not need to be copied to the output.
+  -->
 </Project>
