@@ -29,7 +29,16 @@ namespace SerialPortSpy
 
         private bool _useAltColor;
 
-        private readonly SolidColorBrush _pinkBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F02B63"));
+        //True when the previous chunk ended on a CR. The 1ms poll can split a
+        //CRLF across two reads, and without this the trailing LF would be treated
+        //as a second line break and emit a blank line.
+        private bool _pendingCr;
+
+        //Received chunks alternate between these two theme brushes. Both are warm
+        //tones ~12 deg apart in hue, so they are separated mainly by lightness
+        //(84% vs 73%) rather than by hue.
+        private readonly Brush _chunkBrushYellow;
+        private readonly Brush _chunkBrushOrange;
 
         public MainWindow()
         {
@@ -43,6 +52,21 @@ namespace SerialPortSpy
             this.Loaded += OnLoaded;
             this.Closing += OnClosing;
             InitializeComponent();
+
+            //FindResource (rather than the Resources indexer) so a missing
+            //theme key fails fast instead of silently rendering default colors.
+            _chunkBrushYellow = (Brush)FindResource("Brush.YellowLight");
+            _chunkBrushOrange = (Brush)FindResource("Brush.OrangePale");
+        }
+
+        /// <summary>
+        /// Ask DWM for the native dark title bar as soon as the HWND exists,
+        /// before first paint, so there is no light-to-dark flash.
+        /// </summary>
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            Interop.DarkTitleBar.Apply(this);
         }
 
         //------------------------------------------------------
@@ -52,8 +76,6 @@ namespace SerialPortSpy
         private void OnLoaded(Object sender, RoutedEventArgs e)
         {
             Debug.WriteLine("[SerialPortSpy] MainWindow::OnLoaded()");
-
-            this.RichTextBox_Data.Document.PageWidth = this.RichTextBox_Data.Width;
 
             if (_viewModel.PortNames.Count < 1)
             {
@@ -80,36 +102,125 @@ namespace SerialPortSpy
 
         private void OnOutputCleared(object sender, EventArgs e)
         {
+            //Each fresh session starts on the yellow brush
+            _useAltColor = false;
+            _pendingCr = false;
             RichTextBox_Data.Document.Blocks.Clear();
         }
 
         private void OnDataReceived(object sender, string receivedString)
         {
-            Run run = new Run(receivedString);
-
-            //Switch the Text Color everytime we receive a new data 'chunk'
-            if (_useAltColor)
-            {
-                run.Foreground = _pinkBrush;
-            }
-            else
-            {
-                run.Foreground = Brushes.SteelBlue;
-            }
-
+            //One colour per received chunk, even when the chunk spans several lines
+            Brush chunkBrush = _useAltColor ? _chunkBrushOrange : _chunkBrushYellow;
             _useAltColor = !_useAltColor;
 
-            Paragraph paragraph = RichTextBox_Data.Document.Blocks.LastOrDefault() as Paragraph;
-            if (paragraph == null)
+            //A Run's \r\n is collapsible whitespace to the FlowDocument layout, not
+            //a line break - only a paragraph boundary breaks the line. So split the
+            //chunk here and start a new Paragraph at each newline.
+            int segmentStart = 0;
+
+            for (int i = 0; i < receivedString.Length; i++)
             {
-                paragraph = new Paragraph();
-                RichTextBox_Data.Document.Blocks.Add(paragraph);
+                char c = receivedString[i];
+
+                if (c != '\r' && c != '\n') continue;
+
+                //The LF half of a CRLF that straddled two reads - already broken
+                if (c == '\n' && i == 0 && _pendingCr)
+                {
+                    segmentStart = 1;
+                    _pendingCr = false;
+                    continue;
+                }
+
+                AppendText(receivedString.Substring(segmentStart, i - segmentStart), chunkBrush);
+                StartNewLine();
+
+                //Consume the LF of a CRLF pair so it doesn't break the line twice
+                if (c == '\r' && i + 1 < receivedString.Length && receivedString[i + 1] == '\n')
+                {
+                    i++;
+                }
+
+                segmentStart = i + 1;
             }
-            paragraph.Inlines.Add(run);
+
+            AppendText(receivedString.Substring(segmentStart), chunkBrush);
+
+            //Only a trailing CR can pair with an LF in the next chunk. Leave the
+            //flag alone on an empty chunk - ReadExisting() returns "" when the
+            //buffer holds a partial UTF-8 sequence, and clearing here would strand
+            //a CR whose LF has not arrived yet.
+            if (receivedString.Length > 0)
+            {
+                _pendingCr = receivedString[receivedString.Length - 1] == '\r';
+            }
 
             RichTextBox_Data.ScrollToEnd();
 
             LimitDocumentSize();
+        }
+
+        /// <summary>
+        /// Appends one newline-free segment to the last paragraph.
+        /// </summary>
+        private void AppendText(string text, Brush brush)
+        {
+            if (text.Length < 1) return;
+
+            Paragraph paragraph = RichTextBox_Data.Document.Blocks.LastOrDefault() as Paragraph;
+            if (paragraph == null)
+            {
+                paragraph = NewParagraph();
+                RichTextBox_Data.Document.Blocks.Add(paragraph);
+            }
+            else
+            {
+                //RichTextBox re-inserts a default-margin paragraph after a Clear()
+                paragraph.Margin = new Thickness(0);
+            }
+
+            paragraph.Inlines.Add(new Run(MakeControlsVisible(text)) { Foreground = brush });
+        }
+
+        private void StartNewLine()
+        {
+            RichTextBox_Data.Document.Blocks.Add(NewParagraph());
+        }
+
+        /// <summary>
+        /// Zero margin: WPF's default paragraph spacing would put a gap between
+        /// every line of the log.
+        /// </summary>
+        private static Paragraph NewParagraph()
+        {
+            return new Paragraph { Margin = new Thickness(0) };
+        }
+
+        /// <summary>
+        /// Swaps non-printing C0 controls for their Unicode Control Pictures
+        /// (ESC becomes U+241B) so they are visible rather than painting nothing.
+        /// Tab is left alone; CR/LF never reach here - the line splitter ate them.
+        /// Note this changes what Ctrl+C copies; Hex mode is the byte-faithful view.
+        /// </summary>
+        private static string MakeControlsVisible(string text)
+        {
+            char[] buffer = null;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+
+                if (c > 0x1F && c != 0x7F) continue;
+                if (c == '\t') continue;
+
+                buffer = buffer ?? text.ToCharArray();
+
+                //U+2400 block runs NUL..US in byte order, then U+2421 for DEL
+                buffer[i] = c == 0x7F ? '␡' : (char)(0x2400 + c);
+            }
+
+            return buffer == null ? text : new string(buffer);
         }
 
         private void LimitDocumentSize()
@@ -167,6 +278,11 @@ namespace SerialPortSpy
                         if (!para.Inlines.Any())
                         {
                             blocksToRemove.Add(para);
+
+                            // TextRange.Text counts each paragraph break as \r\n, so
+                            // without this the loop under-trims: the document would
+                            // creep past the cap and re-run this walk on every chunk.
+                            removedLength += 2;
                         }
                     }
                 }
