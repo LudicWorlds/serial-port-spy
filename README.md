@@ -17,8 +17,6 @@ It is currently **read-only** — it listens, and never transmits.
 6. Choose how to view the data with **Display Data As**.
 7. Click **Open Port**.
 
-**Requires 64-bit Windows.** The download is an x64 build and will not run on 32-bit Windows.
-
 There is no installer and nothing to set up — the `.exe` is fully self-contained, so you don't need the .NET runtime installed. It can be run from anywhere, and deleting it uninstalls it.
 
 The app isn't code-signed, so Windows will likely show a **"Windows protected your PC"** dialog the first time you run it. Choose **More info → Run anyway**.
