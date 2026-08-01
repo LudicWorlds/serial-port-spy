@@ -7,8 +7,10 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Reflection;
@@ -43,8 +45,14 @@ namespace SerialPortSpy.ViewModels
         private const string DISPLAY_DECIMAL = "Decimal";
         private const string DISPLAY_HEX = "Hex";
 
+        //A burst of WM_DEVICECHANGE messages can arrive for one physical plug, so
+        //the refresh is coalesced: each notification restarts this countdown and
+        //only the final, quiet tick re-enumerates the ports.
+        private static readonly TimeSpan DEVICE_CHANGE_DEBOUNCE = TimeSpan.FromMilliseconds(300);
+
         private readonly SerialPortService _serialPortService;
         private readonly DispatcherTimer _serialTimer;
+        private readonly DispatcherTimer _deviceChangeTimer;
 
         private string _selectedPortName;
         private string _baudRateText;
@@ -54,6 +62,10 @@ namespace SerialPortSpy.ViewModels
         private string _statusMessage;
         private bool _isPortOpen;
         private bool _isError;
+
+        //The port name currently held open, captured at Open() so a disconnect
+        //message can name it even after the SerialPort has been torn down.
+        private string _openPortName;
 
         /// <summary>
         /// Raised when a chunk of serial data has been received and formatted for display.
@@ -70,7 +82,9 @@ namespace SerialPortSpy.ViewModels
             _serialPortService = new SerialPortService();
 
             var v = Assembly.GetExecutingAssembly().GetName().Version;
-            Title = $"Serial Port Spy - v{v.Major}.{v.Minor}";
+            //System.Version is Major.Minor.Build.Revision, so the semver patch
+            //number is Build - and this reads AssemblyVersion, not <Version>.
+            Title = $"Serial Port Spy - v{v.Major}.{v.Minor}.{v.Build}";
 
             //Covers the rates a microcontroller monitor actually meets, including
             //74880 (ESP8266 boot log), 250000 (Marlin / DMX512) and the fast ESP32
@@ -103,6 +117,11 @@ namespace SerialPortSpy.ViewModels
             _serialTimer = new DispatcherTimer();
             _serialTimer.Tick += OnSerialTimer_Tick;
             _serialTimer.Interval = TimeSpan.FromMilliseconds(1); //Query Serial Data every millisecond
+
+            //Debounces device-change notifications (see NotifyDeviceChange).
+            _deviceChangeTimer = new DispatcherTimer();
+            _deviceChangeTimer.Tick += OnDeviceChangeTimer_Tick;
+            _deviceChangeTimer.Interval = DEVICE_CHANGE_DEBOUNCE;
 
             //The IsPortOpen clause matters: once open the button means 'Close Port',
             //which must stay clickable no matter what is in the baud box.
@@ -210,16 +229,115 @@ namespace SerialPortSpy.ViewModels
         // Methods
         //-----------------------------------------------
 
+        /// <summary>
+        /// Called (debounced) from the view when Windows reports a device-tree
+        /// change. Restarts the quiet-period countdown so a burst of
+        /// WM_DEVICECHANGE messages collapses into a single refresh.
+        /// </summary>
+        public void NotifyDeviceChange()
+        {
+            _deviceChangeTimer.Stop();
+            _deviceChangeTimer.Start();
+        }
+
+        private void OnDeviceChangeTimer_Tick(object sender, EventArgs e)
+        {
+            _deviceChangeTimer.Stop();
+            RefreshPortNames();
+        }
+
+        /// <summary>
+        /// Reconciles <see cref="PortNames"/> with the ports Windows currently
+        /// reports, in place: departed ports are removed and new arrivals inserted
+        /// at their sorted position, leaving unchanged entries (and the ComboBox's
+        /// bound selection) untouched. If the open port has vanished it is treated
+        /// as a disconnect first. Also the startup populate - nothing is selected
+        /// yet, so the selection rule below picks the first port as before.
+        /// </summary>
         public void RefreshPortNames()
         {
-            PortNames.Clear();
+            List<string> current = EnumeratePorts();
 
-            foreach (string name in _serialPortService.GetPortNames())
+            //The open port disappearing is a disconnect, not just a list edit.
+            //The name check alone is not enough: some drivers keep the SERIALCOMM
+            //registry entry (and so GetPortNames) alive while we hold the handle,
+            //so also probe whether the device itself still responds.
+            if (IsPortOpen && _openPortName != null
+                && (!current.Contains(_openPortName) || !_serialPortService.IsDeviceResponsive()))
             {
-                PortNames.Add(name);
+                HandlePortLoss(_openPortName);
+
+                //Closing our handle may have released the stale registry entry -
+                //re-read so the dead port leaves the dropdown in this pass rather
+                //than lingering until the next device change.
+                current = EnumeratePorts();
             }
 
-            SelectedPortName = PortNames.FirstOrDefault();
+            //Remove ports that are gone (iterate a copy - we mutate the collection).
+            foreach (string name in PortNames.ToList())
+            {
+                if (!current.Contains(name))
+                {
+                    PortNames.Remove(name);
+                }
+            }
+
+            //Insert new arrivals at their sorted position so the list stays ordered.
+            for (int i = 0; i < current.Count; i++)
+            {
+                if (i >= PortNames.Count)
+                {
+                    PortNames.Add(current[i]);
+                }
+                else if (PortNames[i] != current[i])
+                {
+                    PortNames.Insert(i, current[i]);
+                }
+            }
+
+            EnsureSelectionValid();
+        }
+
+        /// <summary>
+        /// Keeps the current selection if it survived the last list edit; otherwise
+        /// falls back to the first available port (or null when none remain).
+        /// </summary>
+        private void EnsureSelectionValid()
+        {
+            if (SelectedPortName == null || !PortNames.Contains(SelectedPortName))
+            {
+                SelectedPortName = PortNames.FirstOrDefault();
+            }
+        }
+
+        /// <summary>
+        /// The ports Windows currently reports, ordered numerically then by name.
+        /// Distinct() because GetPortNames() reads the registry and is known to
+        /// return the same port twice on some systems.
+        /// </summary>
+        private List<string> EnumeratePorts()
+        {
+            return _serialPortService.GetPortNames()
+                                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                                     .OrderBy(GetPortSortKey)
+                                     .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
+                                     .ToList();
+        }
+
+        /// <summary>
+        /// Sort key that orders COMn numerically (so COM2 precedes COM10). Names
+        /// that aren't "COM&lt;number&gt;" sort last and fall back to text ordering.
+        /// </summary>
+        private static int GetPortSortKey(string portName)
+        {
+            if (portName != null
+                && portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(portName.Substring(3), NumberStyles.None, CultureInfo.InvariantCulture, out int number))
+            {
+                return number;
+            }
+
+            return int.MaxValue;
         }
 
         /// <summary>
@@ -227,6 +345,8 @@ namespace SerialPortSpy.ViewModels
         /// </summary>
         public void Shutdown()
         {
+            _deviceChangeTimer.Stop();
+
             if (_serialPortService.IsOpen)
             {
                 ClosePort();
@@ -299,6 +419,7 @@ namespace SerialPortSpy.ViewModels
                 };
 
                 _serialPortService.Open(settings);
+                _openPortName = settings.PortName;
                 _serialTimer.Start();
 
                 StatusMessage = settings.PortName + " successfully opened. Reading incoming bytes at " + settings.BaudRate + " bps.";
@@ -338,9 +459,56 @@ namespace SerialPortSpy.ViewModels
             finally
             {
                 IsPortOpen = _serialPortService.IsOpen;
+                if (!IsPortOpen) _openPortName = null;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Handles the open port being physically removed mid-session (detected
+        /// by a read throwing, by the stream closing itself, or by the refresh
+        /// probe failing). Stops reading, closes what's left, and goes red.
+        /// Guards on _openPortName - the ViewModel's own record - because on
+        /// surprise removal the SerialPort stream often marks *itself* closed
+        /// first, so the service's IsOpen cannot distinguish "already handled"
+        /// from "needs handling". Nulling the field first makes it idempotent.
+        /// </summary>
+        private void HandlePortLoss(string portName)
+        {
+            if (_openPortName == null) return;
+            _openPortName = null;
+
+            _serialTimer.Stop();
+
+            //Unconditional: on surprise removal the stream often marks itself
+            //closed while the OS handle is STILL OPEN (IsOpen only reflects an
+            //internal flag), and a leaked handle keeps the dead port listed in
+            //GetPortNames() forever - the driver holds its SERIALCOMM registry
+            //entry until the handle is freed. Close() handles every state
+            //internally and never throws.
+            _serialPortService.Close();
+
+            //Not read back from the service: the port is gone regardless of
+            //what a wedged handle claims. Re-enables config via IsConfigEnabled.
+            IsPortOpen = false;
+            StatusMessage = portName + " was disconnected.";
+            IsError = true;
+
+            //Drop the dead port from the dropdown here rather than leaving it to
+            //the device-change refresh. That refresh is a one-shot fired from the
+            //Windows broadcast, which arrives while our handle is still open - and
+            //a driver keeps the port's SERIALCOMM registry entry (so GetPortNames
+            //keeps listing it) until every handle is released. Once it has fired,
+            //no second broadcast is coming, so a port missed on that pass would
+            //linger in the list for the rest of the session.
+            PortNames.Remove(portName);
+            EnsureSelectionValid();
+
+            //And re-enumerate shortly, now that the handle is released: this both
+            //confirms the removal and restores the port if it turns out Windows
+            //still reports it (a probe can misjudge an unusual device).
+            NotifyDeviceChange();
         }
 
         //------------------------------------------------------
@@ -349,29 +517,53 @@ namespace SerialPortSpy.ViewModels
 
         private void OnSerialTimer_Tick(object sender, EventArgs e)
         {
-            if (!_serialPortService.IsOpen || _serialPortService.BytesToRead < 1) return;
+            //The timer only runs while we believe a port is open, so the stream
+            //reporting closed here means it noticed the device being surprise-
+            //removed and shut itself - a disconnect, not a benign no-data tick.
+            if (!_serialPortService.IsOpen)
+            {
+                HandlePortLoss(_openPortName);
+                return;
+            }
 
             string receivedString;
 
-            switch (SelectedDisplayDataOption)
+            //A port unplugged mid-read makes BytesToRead/Read throw. Catch it and
+            //treat it as a disconnect rather than letting it surface as an unhandled
+            //exception. A device-change refresh may reach the same conclusion first;
+            //HandlePortLoss is idempotent, so whichever wins, the other no-ops.
+            try
             {
-                case DISPLAY_DECIMAL:
-                    //D3 - fixed width so columns line up in the log
-                    receivedString = FormatBytes(_serialPortService.ReadAvailableBytes(), "D3");
-                    break;
+                if (_serialPortService.BytesToRead < 1) return;
 
-                case DISPLAY_HEX:
-                    //X2 - uppercase, zero-padded, the conventional hex-dump form
-                    receivedString = FormatBytes(_serialPortService.ReadAvailableBytes(), "X2");
-                    break;
+                switch (SelectedDisplayDataOption)
+                {
+                    case DISPLAY_DECIMAL:
+                        //D3 - fixed width so columns line up in the log
+                        receivedString = FormatBytes(_serialPortService.ReadAvailableBytes(), "D3");
+                        break;
 
-                case DISPLAY_TEXT:
-                default:
-                    //Decoded with the port's Encoding.Default (UTF-8 on .NET 10),
-                    //so bytes 0x80-0xFF arrive as U+FFFD rather than one glyph
-                    //each - use Hex or Decimal to inspect non-text traffic.
-                    receivedString = _serialPortService.ReadExisting();
-                    break;
+                    case DISPLAY_HEX:
+                        //X2 - uppercase, zero-padded, the conventional hex-dump form
+                        receivedString = FormatBytes(_serialPortService.ReadAvailableBytes(), "X2");
+                        break;
+
+                    case DISPLAY_TEXT:
+                    default:
+                        //Decoded with the port's Encoding.Default (UTF-8 on .NET 10),
+                        //so bytes 0x80-0xFF arrive as U+FFFD rather than one glyph
+                        //each - use Hex or Decimal to inspect non-text traffic.
+                        receivedString = _serialPortService.ReadExisting();
+                        break;
+                }
+            }
+            catch (Exception ex) when (ex is IOException
+                                       || ex is InvalidOperationException
+                                       || ex is UnauthorizedAccessException
+                                       || ex is OperationCanceledException)
+            {
+                HandlePortLoss(_openPortName);
+                return;
             }
 
             DataReceived?.Invoke(this, receivedString);

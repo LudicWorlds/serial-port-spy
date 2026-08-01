@@ -13,6 +13,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Documents;
+using System.Windows.Interop;
 using System.Windows.Media;
 using SerialPortSpy.ViewModels;
 
@@ -39,6 +40,9 @@ namespace SerialPortSpy
         //(84% vs 73%) rather than by hue.
         private readonly Brush _chunkBrushYellow;
         private readonly Brush _chunkBrushOrange;
+
+        //The device-change message hook, kept so it can be removed on close.
+        private HwndSource _hwndSource;
 
         public MainWindow()
         {
@@ -67,6 +71,26 @@ namespace SerialPortSpy
         {
             base.OnSourceInitialized(e);
             Interop.DarkTitleBar.Apply(this);
+
+            //Listen for USB-serial adapters being plugged in or unplugged so the
+            //COM Port list stays live. The HWND exists by now, so the hook takes.
+            _hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            _hwndSource?.AddHook(WndProc);
+        }
+
+        /// <summary>
+        /// Observes WM_DEVICECHANGE and forwards the coarse "a device changed"
+        /// cue to the ViewModel, which debounces and refreshes the port list.
+        /// Observe-only: never sets handled, so normal message routing continues.
+        /// </summary>
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (Interop.DeviceNotifications.IsPortListChange(msg, wParam))
+            {
+                _viewModel.NotifyDeviceChange();
+            }
+
+            return IntPtr.Zero;
         }
 
         //------------------------------------------------------
@@ -96,6 +120,8 @@ namespace SerialPortSpy
         private void OnClosing(object sender, CancelEventArgs e)
         {
             Debug.WriteLine("[SerialPortSpy] MainWindow::OnClosing()");
+
+            _hwndSource?.RemoveHook(WndProc);
 
             _viewModel.Shutdown();
         }
