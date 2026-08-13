@@ -12,6 +12,67 @@
     <!-- An implicit Window style would not apply here (implicit style lookup
          keys on the runtime type MainWindow), so brand properties are set
          directly on the element above. -->
+    <Window.Resources>
+        <!-- A COM port as "COM3  USB-SERIAL CH340". App-specific data shaping
+             rather than a theme token, so it lives here and not in Theme.xaml,
+             though it draws on the theme's brushes.
+
+             The dropdown grows to fit these: Tpl.ComboBox binds the popup's
+             MinWidth - not Width - to the ComboBox, so the list can be wider
+             than the 110px control it drops from. -->
+        <DataTemplate x:Key="Tpl.PortItem">
+            <StackPanel Orientation="Horizontal">
+                <!-- No explicit Foreground: it must keep inheriting so the
+                     IsEnabled=False trigger in Tpl.ComboBox can grey the closed
+                     box while a port is open. See the MultiDataTrigger below. -->
+                <TextBlock x:Name="portName" Text="{Binding PortName}"/>
+                <!-- Segoe UI, overriding the ComboBox's mono: the port name is
+                     data, but the device name is prose (Theme.xaml header -
+                     "mono is data-only"). -->
+                <TextBlock x:Name="description"
+                           Text="{Binding Description}"
+                           Margin="12,0,0,0"
+                           FontFamily="Segoe UI"
+                           Foreground="{StaticResource Brush.MutedStrong}"/>
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <!-- Not on the USB bus, so not a plausible board: show the bare
+                     port name however Windows described it. The description is
+                     still carried on the item - the status bar shows it. -->
+                <DataTrigger Binding="{Binding IsUsbDevice}" Value="False">
+                    <Setter TargetName="description" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+
+                <!-- ComboBox reuses ItemTemplate for the closed selection box,
+                     where there is no ComboBoxItem ancestor for this binding to
+                     find. So the description collapses there and the closed
+                     control still reads just "COM3", as it always has - the
+                     full text lives in the dropdown and the status bar. -->
+                <DataTrigger Value="{x:Null}"
+                             Binding="{Binding RelativeSource={RelativeSource AncestorType=ComboBoxItem}}">
+                    <Setter TargetName="description" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+
+                <!-- Let an uninteresting port recede. Recolor rather than
+                     opacity-dim, per the rule stated in Tpl.ComboBox.
+
+                     The IsEnabled condition scopes this to dropdown rows only:
+                     in the closed selection box the ancestor lookup finds
+                     nothing, resolves to null, and the condition fails. That
+                     matters - an explicit Foreground here would beat the
+                     inherited one and break the disabled (port-open) grey. -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsUsbDevice}" Value="False"/>
+                        <Condition Value="True"
+                                   Binding="{Binding RelativeSource={RelativeSource AncestorType=ComboBoxItem},
+                                                     Path=IsEnabled}"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="portName" Property="Foreground" Value="{StaticResource Brush.Muted}"/>
+                </MultiDataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -38,9 +99,13 @@
 
                 <StackPanel Grid.Column="0" Margin="0,0,12,0">
                     <Label Content="COM Port"/>
+                    <!-- SelectedValuePath keeps the bound selection a plain port
+                         name, so only the list item type gained a description. -->
                     <ComboBox Width="110"
-                              ItemsSource="{Binding PortNames}"
-                              SelectedItem="{Binding SelectedPortName}"
+                              ItemsSource="{Binding Ports}"
+                              ItemTemplate="{StaticResource Tpl.PortItem}"
+                              SelectedValuePath="PortName"
+                              SelectedValue="{Binding SelectedPortName}"
                               IsEnabled="{Binding IsConfigEnabled}"/>
                 </StackPanel>
 

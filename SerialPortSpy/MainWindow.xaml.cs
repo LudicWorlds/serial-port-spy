@@ -101,7 +101,7 @@ namespace SerialPortSpy
         {
             Debug.WriteLine("[SerialPortSpy] MainWindow::OnLoaded()");
 
-            if (_viewModel.PortNames.Count < 1)
+            if (_viewModel.Ports.Count < 1)
             {
                 MessageBox.Show("Have you connected your 'serial to USB' device\n(e.g. Keyspan Adapter, Arduino) ?\n\nThis program needs to find at least one COM Port in order to run.", "No COM Ports found!", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 
@@ -109,7 +109,7 @@ namespace SerialPortSpy
                 //Check to see if this is the case, and we have a new COM Port.
                 _viewModel.RefreshPortNames();
 
-                if (_viewModel.PortNames.Count < 1)
+                if (_viewModel.Ports.Count < 1)
                 {
                     Application.Current.Shutdown();
                     return;

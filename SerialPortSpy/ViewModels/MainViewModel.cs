@@ -111,7 +111,9 @@ namespace SerialPortSpy.ViewModels
             _selectedDisplayDataOption = DISPLAY_TEXT;
             _statusMessage = READY_STATUS_MSG;
 
-            PortNames = new ObservableCollection<string>();
+            //Populates the status bar too, via the SelectedPortName setter -
+            //hence _statusMessage and _baudRateText being assigned above first.
+            Ports = new ObservableCollection<SerialPortInfo>();
             RefreshPortNames();
 
             _serialTimer = new DispatcherTimer();
@@ -138,7 +140,12 @@ namespace SerialPortSpy.ViewModels
 
         public string Title { get; }
 
-        public ObservableCollection<string> PortNames { get; }
+        /// <summary>
+        /// The COM ports on offer, each carrying its device description. Bound
+        /// with SelectedValuePath so the selection stays a plain port-name
+        /// string (see SelectedPortName).
+        /// </summary>
+        public ObservableCollection<SerialPortInfo> Ports { get; }
 
         public ObservableCollection<string> BaudRates { get; }
 
@@ -150,10 +157,22 @@ namespace SerialPortSpy.ViewModels
 
         public ICommand TogglePortCommand { get; }
 
+        /// <summary>
+        /// The selected port's name, not the SerialPortInfo itself: the combo
+        /// binds it through SelectedValuePath, which keeps every consumer here
+        /// (open, close, the command predicate, the disconnect message) working
+        /// with the plain string the SerialPort API actually wants.
+        /// </summary>
         public string SelectedPortName
         {
             get => _selectedPortName;
-            set => SetProperty(ref _selectedPortName, value);
+            set
+            {
+                if (SetProperty(ref _selectedPortName, value))
+                {
+                    UpdateSelectedPortStatus();
+                }
+            }
         }
 
         public string BaudRateText
@@ -247,7 +266,7 @@ namespace SerialPortSpy.ViewModels
         }
 
         /// <summary>
-        /// Reconciles <see cref="PortNames"/> with the ports Windows currently
+        /// Reconciles <see cref="Ports"/> with the ports Windows currently
         /// reports, in place: departed ports are removed and new arrivals inserted
         /// at their sorted position, leaving unchanged entries (and the ComboBox's
         /// bound selection) untouched. If the open port has vanished it is treated
@@ -256,14 +275,17 @@ namespace SerialPortSpy.ViewModels
         /// </summary>
         public void RefreshPortNames()
         {
-            List<string> current = EnumeratePorts();
+            List<SerialPortInfo> current = EnumeratePorts();
 
             //The open port disappearing is a disconnect, not just a list edit.
             //The name check alone is not enough: some drivers keep the SERIALCOMM
             //registry entry (and so GetPortNames) alive while we hold the handle,
             //so also probe whether the device itself still responds.
+            //Matched on PortName, not with Contains: the list holds descriptions
+            //now, and a device that renamed itself must not read as a disconnect.
             if (IsPortOpen && _openPortName != null
-                && (!current.Contains(_openPortName) || !_serialPortService.IsDeviceResponsive()))
+                && (!current.Any(port => string.Equals(port.PortName, _openPortName, StringComparison.OrdinalIgnoreCase))
+                    || !_serialPortService.IsDeviceResponsive()))
             {
                 HandlePortLoss(_openPortName);
 
@@ -273,25 +295,30 @@ namespace SerialPortSpy.ViewModels
                 current = EnumeratePorts();
             }
 
+            //Both passes below compare by value, not reference - SerialPortInfo is
+            //a record for exactly this reason. Rebuilding the list wholesale on
+            //every tick would make the ComboBox selection flicker, and a port
+            //whose description changed correctly reads as a remove then an insert.
+
             //Remove ports that are gone (iterate a copy - we mutate the collection).
-            foreach (string name in PortNames.ToList())
+            foreach (SerialPortInfo port in Ports.ToList())
             {
-                if (!current.Contains(name))
+                if (!current.Contains(port))
                 {
-                    PortNames.Remove(name);
+                    Ports.Remove(port);
                 }
             }
 
             //Insert new arrivals at their sorted position so the list stays ordered.
             for (int i = 0; i < current.Count; i++)
             {
-                if (i >= PortNames.Count)
+                if (i >= Ports.Count)
                 {
-                    PortNames.Add(current[i]);
+                    Ports.Add(current[i]);
                 }
-                else if (PortNames[i] != current[i])
+                else if (Ports[i] != current[i])
                 {
-                    PortNames.Insert(i, current[i]);
+                    Ports.Insert(i, current[i]);
                 }
             }
 
@@ -304,23 +331,48 @@ namespace SerialPortSpy.ViewModels
         /// </summary>
         private void EnsureSelectionValid()
         {
-            if (SelectedPortName == null || !PortNames.Contains(SelectedPortName))
+            if (SelectedPortName == null || FindPort(SelectedPortName) == null)
             {
-                SelectedPortName = PortNames.FirstOrDefault();
+                SelectedPortName = Ports.FirstOrDefault()?.PortName;
             }
         }
 
         /// <summary>
-        /// The ports Windows currently reports, ordered numerically then by name.
+        /// The listed port of that name, or null if it isn't (or no longer is)
+        /// on offer.
+        /// </summary>
+        private SerialPortInfo FindPort(string portName)
+        {
+            return Ports.FirstOrDefault(
+                port => string.Equals(port.PortName, portName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// The ports Windows currently reports, ordered numerically then by name,
+        /// each labelled with its device description where Windows knows one.
         /// Distinct() because GetPortNames() reads the registry and is known to
         /// return the same port twice on some systems.
+        ///
+        /// The sort runs on the names, before they are paired with descriptions,
+        /// so ordering stays by port number rather than by device name. Ports the
+        /// description lookup doesn't cover keep a null description and render as
+        /// the bare name - deliberately not an "Unknown" label, which is a
+        /// long-standing complaint about the Arduino IDE's port menu.
         /// </summary>
-        private List<string> EnumeratePorts()
+        private List<SerialPortInfo> EnumeratePorts()
         {
+            Dictionary<string, (string Description, bool IsUsb)> devices = _serialPortService.GetPortDescriptions();
+
             return _serialPortService.GetPortNames()
                                      .Distinct(StringComparer.OrdinalIgnoreCase)
                                      .OrderBy(GetPortSortKey)
                                      .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
+                                     //Built from 'name', never from anything the lookup
+                                     //returned: GetPortNames() stays authoritative for
+                                     //which ports exist and what they are called.
+                                     .Select(name => devices.TryGetValue(name, out var device)
+                                                     ? new SerialPortInfo(name, device.Description, device.IsUsb)
+                                                     : new SerialPortInfo(name, null, false))
                                      .ToList();
         }
 
@@ -377,7 +429,40 @@ namespace SerialPortSpy.ViewModels
             if (IsPortOpen) return; //The combo is disabled while open
 
             IsError = false; //Editing the config voids the previous attempt's result
-            StatusMessage = TryGetBaudRate(out _) ? READY_STATUS_MSG : INVALID_BAUD_MSG;
+
+            if (TryGetBaudRate(out _))
+            {
+                //Back to the idle message, which names the selected device when
+                //Windows knows it and falls back to the ready text when it doesn't.
+                UpdateSelectedPortStatus();
+            }
+            else
+            {
+                StatusMessage = INVALID_BAUD_MSG;
+            }
+        }
+
+        /// <summary>
+        /// Names the selected device in the status bar - the one place the full,
+        /// untrimmed description is shown, since the closed combo has room only
+        /// for the port name. Like UpdateBaudRateStatus it never sets IsError:
+        /// picking a port is not a failed operation.
+        ///
+        /// It only ever displaces the neutral ready text. Everything else the
+        /// status bar can be showing outranks it: an open confirmation, a red
+        /// failure, or the invalid-baud hint.
+        /// </summary>
+        private void UpdateSelectedPortStatus()
+        {
+            if (IsPortOpen) return;             //"...successfully opened" stands
+            if (IsError) return;                //A failure stands until the next attempt
+            if (!TryGetBaudRate(out _)) return; //The baud hint is the more urgent message
+
+            SerialPortInfo port = FindPort(SelectedPortName);
+
+            StatusMessage = port == null || string.IsNullOrEmpty(port.Description)
+                          ? READY_STATUS_MSG
+                          : port.PortName + " - " + port.Description;
         }
 
         private void TogglePort()
@@ -447,8 +532,6 @@ namespace SerialPortSpy.ViewModels
 
                 _serialTimer.Stop();
                 _serialPortService.Close();
-
-                StatusMessage = READY_STATUS_MSG;
             }
             catch (Exception error)
             {
@@ -460,6 +543,11 @@ namespace SerialPortSpy.ViewModels
             {
                 IsPortOpen = _serialPortService.IsOpen;
                 if (!IsPortOpen) _openPortName = null;
+
+                //After IsPortOpen drops, so the idle message can be written: names
+                //the selected device again, or restores the ready text. No-ops on
+                //the failure path above, where IsError guards the error message.
+                UpdateSelectedPortStatus();
             }
 
             return true;
@@ -492,8 +580,6 @@ namespace SerialPortSpy.ViewModels
             //Not read back from the service: the port is gone regardless of
             //what a wedged handle claims. Re-enables config via IsConfigEnabled.
             IsPortOpen = false;
-            StatusMessage = portName + " was disconnected.";
-            IsError = true;
 
             //Drop the dead port from the dropdown here rather than leaving it to
             //the device-change refresh. That refresh is a one-shot fired from the
@@ -502,8 +588,17 @@ namespace SerialPortSpy.ViewModels
             //keeps listing it) until every handle is released. Once it has fired,
             //no second broadcast is coming, so a port missed on that pass would
             //linger in the list for the rest of the session.
-            PortNames.Remove(portName);
+            SerialPortInfo lost = FindPort(portName);
+            if (lost != null) Ports.Remove(lost);
             EnsureSelectionValid();
+
+            //Set last, after the list edit: EnsureSelectionValid moves the
+            //selection to a surviving port, and that setter writes the newly
+            //selected device's name to the status bar. Its IsError guard already
+            //protects this message, but writing it afterwards means the disconnect
+            //survives even if those guards are ever loosened.
+            StatusMessage = portName + " was disconnected.";
+            IsError = true;
 
             //And re-enumerate shortly, now that the handle is released: this both
             //confirms the removal and restores the port if it turns out Windows

@@ -7,9 +7,11 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
 using System.Text;
+using SerialPortSpy.Interop;
 using SerialPortSpy.Models;
 
 namespace SerialPortSpy.Services
@@ -41,6 +43,18 @@ namespace SerialPortSpy.Services
         public string[] GetPortNames()
         {
             return SerialPort.GetPortNames();
+        }
+
+        /// <summary>
+        /// What Windows knows about each port, keyed by port name: the device
+        /// description ("USB-SERIAL CH340") and whether it arrived over USB.
+        /// Purely decorative: GetPortNames() above stays the authority on which
+        /// ports exist, so a port missing from this map is still listed, just by
+        /// its bare name.
+        /// </summary>
+        public Dictionary<string, (string Description, bool IsUsb)> GetPortDescriptions()
+        {
+            return SerialPortNames.GetDescriptions();
         }
 
         /// <summary>
