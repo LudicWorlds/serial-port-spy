@@ -10,11 +10,14 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using SerialPortSpy.ViewModels;
 
 namespace SerialPortSpy
@@ -44,12 +47,28 @@ namespace SerialPortSpy
         //The device-change message hook, kept so it can be removed on close.
         private HwndSource _hwndSource;
 
+        //How many bytes the plotter shows at once. About 1s of data at 9600
+        //baud, ~87ms at 115200 - sized for the Arduino rates this app targets.
+        //The obvious future setting if anyone asks for a wider window.
+        private const int PLOT_POINT_COUNT = 1000;
+
+        //The scrolling fixed-window trace. Recreated (not cleared) on a log
+        //clear - see ResetPlot().
+        private ScottPlot.Plottables.DataStreamer _plotStreamer;
+
+        //Renders the plot at ~30fps. The serial timer ticks every 1ms, and
+        //rendering on each data tick would burn the UI thread for nothing - so
+        //data is *added* on the serial tick and *drawn* on this one, and only
+        //while the plotter tab is actually in front.
+        private DispatcherTimer _plotRenderTimer;
+
         public MainWindow()
         {
             Debug.WriteLine("[SerialPortSpy] MainWindow::MainWindow()");
 
             _viewModel = new MainViewModel();
             _viewModel.DataReceived += OnDataReceived;
+            _viewModel.BytesReceived += OnBytesReceived;
             _viewModel.OutputCleared += OnOutputCleared;
             DataContext = _viewModel;
 
@@ -61,6 +80,89 @@ namespace SerialPortSpy
             //theme key fails fast instead of silently rendering default colors.
             _chunkBrushYellow = (Brush)FindResource("Brush.YellowLight");
             _chunkBrushOrange = (Brush)FindResource("Brush.OrangePale");
+
+            ConfigurePlot();
+
+            _plotRenderTimer = new DispatcherTimer();
+            _plotRenderTimer.Tick += OnPlotRenderTimer_Tick;
+            _plotRenderTimer.Interval = TimeSpan.FromMilliseconds(33); //~30fps
+            _plotRenderTimer.Start();
+        }
+
+        /// <summary>
+        /// One-time plot setup. In code rather than XAML because ScottPlot is
+        /// configured through its API, not through WPF properties - the same
+        /// reason the log renders from code-behind.
+        /// </summary>
+        private void ConfigurePlot()
+        {
+            var plot = PlotView.Plot;
+
+            //Hex duplicates of Theme.xaml tokens: ScottPlot takes raw colours,
+            //not WPF brushes. If the theme is retuned, retune these with it.
+            plot.FigureBackground.Color = ScottPlot.Color.FromHex("#1C1C1C"); //Brush.BgElevated
+            plot.DataBackground.Color = ScottPlot.Color.FromHex("#1C1C1C");   //Brush.BgElevated
+            plot.Axes.Color(ScottPlot.Color.FromHex("#9A9A9A"));              //Brush.MutedStrong
+            plot.Grid.MajorLineColor = ScottPlot.Color.FromHex("#2A2A2A");    //Brush.Border
+
+            //Mono for the byte values on the Y axis (numbers are data). The X
+            //axis is hidden entirely: its unit is "sample index within the
+            //window", which would read as a measurement and mean nothing.
+            plot.Axes.Left.TickLabelStyle.FontName = "Cascadia Code";
+            plot.Axes.Left.TickLabelStyle.FontSize = 12;
+            plot.Axes.Bottom.TickLabelStyle.IsVisible = false;
+
+            _plotStreamer = CreateStreamer(plot);
+
+            //Byte-aligned graticule: 8 divisions of 32, the oscilloscope
+            //convention, with the top tick at 255 because that is the true
+            //byte ceiling (the final 31-wide gap is the honest price of the
+            //maximum being 255, not 256). Manual ticks are position-fixed -
+            //resizing the plot never re-picks them, unlike the automatic
+            //generator's decimal steps (0/50/100), which divide a byte
+            //meaninglessly. The grid draws at these same positions.
+            var ticks = new ScottPlot.TickGenerators.NumericManual();
+            for (int v = 0; v <= 224; v += 32)
+            {
+                ticks.AddMajor(v, v.ToString(CultureInfo.InvariantCulture));
+            }
+            ticks.AddMajor(255, "255");
+            plot.Axes.Left.TickGenerator = ticks;
+
+            //Both axes are fixed, so nothing ever rescales under the user's
+            //eyes: scroll view keeps X at [0, count] with the newest sample at
+            //the right, and Y is exactly the byte range - 0 flush with the
+            //bottom frame, 255 with the top. A flat run of 0s or 255s
+            //therefore draws ON the frame line, as a scope trace does at the
+            //graticule edge; that is the accepted price of flush limits.
+            plot.Axes.SetLimits(0, PLOT_POINT_COUNT, 0, 255);
+
+            //Pan/zoom would fight the fixed limits - this is a live scope view,
+            //not an explorable chart.
+            PlotView.UserInputProcessor.IsEnabled = false;
+        }
+
+        /// <summary>
+        /// Builds the trace. Separate from ConfigurePlot because ResetPlot
+        /// replaces the streamer wholesale - recreating is guaranteed to blank
+        /// the fixed-length buffer, where clearing it is API-version dependent.
+        /// </summary>
+        private static ScottPlot.Plottables.DataStreamer CreateStreamer(ScottPlot.Plot plot)
+        {
+            ScottPlot.Plottables.DataStreamer streamer = plot.Add.DataStreamer(PLOT_POINT_COUNT);
+
+            streamer.LineStyle.Color = ScottPlot.Color.FromHex("#FFBD74"); //Brush.OrangePale - a data colour
+            streamer.LineStyle.Width = 1;
+
+            //Scroll, not wipe: the trace slides left as new data enters at the
+            //right, like the Arduino IDE's own Serial Plotter.
+            streamer.ViewScrollLeft();
+
+            //The axes are pinned in ConfigurePlot; the streamer must not manage
+            //them or it would re-fit Y to the data on every render.
+            streamer.ManageAxisLimits = false;
+
+            return streamer;
         }
 
         /// <summary>
@@ -122,8 +224,59 @@ namespace SerialPortSpy
             Debug.WriteLine("[SerialPortSpy] MainWindow::OnClosing()");
 
             _hwndSource?.RemoveHook(WndProc);
+            _plotRenderTimer.Stop();
 
             _viewModel.Shutdown();
+        }
+
+        /// <summary>
+        /// The plotter's feed: every received byte becomes one point. Runs on
+        /// every data tick whichever tab is in front - Add() is O(1) into a
+        /// fixed buffer, and staying fed means switching to the plotter never
+        /// shows a gap in the trace. Drawing happens on the render timer.
+        /// </summary>
+        private void OnBytesReceived(object sender, byte[] data)
+        {
+            foreach (byte b in data)
+            {
+                _plotStreamer.Add(b);
+            }
+        }
+
+        private void OnPlotRenderTimer_Tick(object sender, EventArgs e)
+        {
+            //Idle while the log tab is in front - no point drawing offscreen -
+            //and skip frames where nothing arrived.
+            if (!PlotterTab.IsSelected) return;
+            if (!_plotStreamer.HasNewData) return;
+
+            PlotView.Refresh();
+        }
+
+        private void OnOutputTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            //Selector events bubble; only act on the TabControl's own.
+            if (!ReferenceEquals(e.OriginalSource, OutputTabs)) return;
+
+            //Catch up immediately on switching in, rather than showing a stale
+            //frame until the render timer's next tick.
+            if (PlotterTab.IsSelected)
+            {
+                PlotView.Refresh();
+            }
+        }
+
+        /// <summary>
+        /// Blanks the trace by replacing the streamer: its buffer is fixed
+        /// length and pre-filled, so recreation is the reliable way to empty it.
+        /// The fresh trace draws flat at 0 until data arrives - scope-like, and
+        /// honest about what an idle line reads as.
+        /// </summary>
+        private void ResetPlot()
+        {
+            PlotView.Plot.Remove(_plotStreamer);
+            _plotStreamer = CreateStreamer(PlotView.Plot);
+            PlotView.Refresh();
         }
 
         /// <summary>
@@ -144,6 +297,10 @@ namespace SerialPortSpy
             if (!_viewModel.IsPortOpen) _pendingCr = false;
 
             RichTextBox_Data.Document.Blocks.Clear();
+
+            //One byte stream, one Clear: the plot blanks alongside the log,
+            //whether this fired from the Clear command or a session starting.
+            ResetPlot();
         }
 
         private void OnDataReceived(object sender, string receivedString)
@@ -186,9 +343,9 @@ namespace SerialPortSpy
             AppendText(receivedString.Substring(segmentStart), chunkBrush);
 
             //Only a trailing CR can pair with an LF in the next chunk. Leave the
-            //flag alone on an empty chunk - ReadExisting() returns "" when the
-            //buffer holds a partial UTF-8 sequence, and clearing here would strand
-            //a CR whose LF has not arrived yet.
+            //flag alone on an empty chunk - DecodeReceivedText() returns "" when
+            //the chunk holds a partial UTF-8 sequence, and clearing here would
+            //strand a CR whose LF has not arrived yet.
             if (receivedString.Length > 0)
             {
                 _pendingCr = receivedString[receivedString.Length - 1] == '\r';

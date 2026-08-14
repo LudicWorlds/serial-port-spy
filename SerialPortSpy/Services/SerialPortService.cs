@@ -36,6 +36,12 @@ namespace SerialPortSpy.Services
         //listing the unplugged port.
         private Stream _baseStream;
 
+        //Decodes Text-mode output from the raw bytes. Stateful on purpose: it
+        //holds the tail of a multi-byte character split across two reads until
+        //the rest arrives. Created fresh at Open() so a new session can never
+        //inherit half a character from the previous one.
+        private Decoder _textDecoder;
+
         public bool IsOpen => _serialPort.IsOpen;
 
         public int BytesToRead => _serialPort.BytesToRead;
@@ -93,6 +99,7 @@ namespace SerialPortSpy.Services
 
             _serialPort.Open();
             _baseStream = _serialPort.BaseStream;
+            _textDecoder = _serialPort.Encoding.GetDecoder();
 
             _baseStream.Flush();
             _serialPort.DiscardInBuffer();
@@ -150,11 +157,24 @@ namespace SerialPortSpy.Services
         }
 
         /// <summary>
-        /// Reads all currently buffered data as text (uses the port's encoding).
+        /// Decodes received bytes as text with the port's encoding. This is the
+        /// replacement for SerialPort.ReadExisting(), which consumed the buffer
+        /// as a string and left no bytes for the plotter - now everything reads
+        /// ReadAvailableBytes() once and Text mode decodes that same chunk.
+        ///
+        /// Matches ReadExisting()'s split-sequence behaviour: returns "" while a
+        /// multi-byte character is still incomplete (flush: false keeps the held
+        /// bytes in the decoder), and the whole character comes out on the call
+        /// that receives the rest of it.
         /// </summary>
-        public string ReadExisting()
+        public string DecodeReceivedText(byte[] bytes)
         {
-            return _serialPort.ReadExisting();
+            if (_textDecoder == null || bytes.Length < 1) return string.Empty;
+
+            //GetCharCount is a dry run; only GetChars advances the decoder state.
+            char[] chars = new char[_textDecoder.GetCharCount(bytes, 0, bytes.Length, flush: false)];
+            _textDecoder.GetChars(bytes, 0, bytes.Length, chars, 0, flush: false);
+            return new string(chars);
         }
 
         public void Dispose()

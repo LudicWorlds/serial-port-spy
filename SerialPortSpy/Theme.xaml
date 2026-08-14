@@ -427,6 +427,66 @@
         </Setter>
     </Style>
 
+    <!-- The Output / Plotter tab strip. Chrome only: transparent, borderless,
+         tabs above, selected content below. -->
+    <Style TargetType="TabControl">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TabPanel Grid.Row="0" IsItemsHost="True" Margin="0,0,0,8"/>
+                        <ContentPresenter Grid.Row="1" ContentSource="SelectedContent"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- One tab. Selection is a 2px orange underline - orange in its
+         interactive role (a selection indicator), consistent with the
+         accent-reservation rule. States recolor; never opacity-dim. The
+         unselected label is MutedStrong, not Muted: it is a control the user
+         must be able to read, not decoration. -->
+    <Style TargetType="TabItem">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.MutedStrong}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <!-- The underline is the border's bottom edge, so no corner
+                         radius here - a rounded wash over a straight underline
+                         would visibly disagree at the corners. -->
+                    <Border x:Name="bd" Background="Transparent" Padding="12,6"
+                            BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Brush.ItemHover}"/>
+                        </Trigger>
+                        <!-- No TargetName on the Foreground setter: it retargets
+                             the TabItem itself and the header inherits it. -->
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Brush.Orange}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- The one primary action (Open/Close Port). Keyed on purpose: the brand
          allows exactly one orange button per view. Text is near-black OnOrange
          in every state - never white on orange (fails WCAG AA). -->

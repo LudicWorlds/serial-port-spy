@@ -1,8 +1,9 @@
 <Window x:Class="SerialPortSpy.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:scottplot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         Title="{Binding Title}"
-        Width="800" Height="586" MinWidth="760" MinHeight="440"
+        Width="800" Height="590" MinWidth="760" MinHeight="440"
         Background="{StaticResource Brush.Bg}"
         Foreground="{StaticResource Brush.Text}"
         UseLayoutRounding="True"
@@ -163,26 +164,47 @@
             </Grid>
         </Border>
 
-        <!-- Serial log -->
-        <RichTextBox Grid.Row="1" Name="RichTextBox_Data"
-                     Style="{StaticResource LogBox}"
-                     Margin="12,12,12,8">
-            <!-- Explicit menu: the default editor context menu bypasses the
-                 dark implicit styles, and Cut/Paste are useless in a
-                 read-only log. -->
-            <RichTextBox.ContextMenu>
-                <ContextMenu>
-                    <MenuItem Header="Copy" Command="ApplicationCommands.Copy" InputGestureText="Ctrl+C"/>
-                    <MenuItem Header="Select All" Command="ApplicationCommands.SelectAll" InputGestureText="Ctrl+A"/>
-                    <!-- Bound through PlacementTarget: a ContextMenu sits in its
-                         own popup, outside the RichTextBox's visual tree, so a
-                         plain {Binding ClearOutputCommand} is not reliable. -->
-                    <MenuItem Header="Clear" InputGestureText="Ctrl+K"
-                              Command="{Binding PlacementTarget.DataContext.ClearOutputCommand,
-                                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
-                </ContextMenu>
-            </RichTextBox.ContextMenu>
-        </RichTextBox>
+        <!-- The two views of the one incoming byte stream: the log renders it
+             as text, the plotter as a line. Both stay fed whichever tab is in
+             front (the log via DataReceived, the plot via BytesReceived), so
+             switching tabs never leaves a gap in either. -->
+        <TabControl Grid.Row="1" x:Name="OutputTabs" Margin="12,8,12,8"
+                    SelectionChanged="OnOutputTabsSelectionChanged">
+            <TabItem Header="Output">
+                <RichTextBox Name="RichTextBox_Data"
+                             Style="{StaticResource LogBox}">
+                    <!-- Explicit menu: the default editor context menu bypasses
+                         the dark implicit styles, and Cut/Paste are useless in a
+                         read-only log. -->
+                    <RichTextBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy" Command="ApplicationCommands.Copy" InputGestureText="Ctrl+C"/>
+                            <MenuItem Header="Select All" Command="ApplicationCommands.SelectAll" InputGestureText="Ctrl+A"/>
+                            <!-- Bound through PlacementTarget: a ContextMenu sits
+                                 in its own popup, outside the RichTextBox's visual
+                                 tree, so a plain {Binding ClearOutputCommand} is
+                                 not reliable. -->
+                            <MenuItem Header="Clear" InputGestureText="Ctrl+K"
+                                      Command="{Binding PlacementTarget.DataContext.ClearOutputCommand,
+                                                        RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </RichTextBox.ContextMenu>
+                </RichTextBox>
+            </TabItem>
+            <TabItem Header="Plotter" x:Name="PlotterTab">
+                <!-- The 1px border matches LogBox's frame. Its 4px corner radius
+                     is not clipped against the Skia surface inside - invisible
+                     at this radius on dark-on-dark, so not worth an OpacityMask. -->
+                <Border BorderBrush="{StaticResource Brush.Border}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource Radius.Ctrl}">
+                    <!-- All configuration (colors, axes, the DataStreamer) is in
+                         MainWindow.xaml.cs ConfigurePlot() - ScottPlot is not
+                         XAML-stylable, same reason the log renders in code. -->
+                    <scottplot:WpfPlot x:Name="PlotView"/>
+                </Border>
+            </TabItem>
+        </TabControl>
 
         <!-- Log actions. A bottom bar, not a header strip above the log: Clear
              is irreversible here (nothing sits behind the document and LogBox

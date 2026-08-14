@@ -68,6 +68,13 @@ namespace SerialPortSpy.ViewModels
         private string _openPortName;
 
         /// <summary>
+        /// Raised whenever a chunk of raw bytes has been read from the port,
+        /// regardless of display mode - the plotter's feed. DataReceived below
+        /// carries the same chunk, formatted for the log.
+        /// </summary>
+        public event EventHandler<byte[]> BytesReceived;
+
+        /// <summary>
         /// Raised when a chunk of serial data has been received and formatted for display.
         /// </summary>
         public event EventHandler<string> DataReceived;
@@ -646,7 +653,7 @@ namespace SerialPortSpy.ViewModels
                 return;
             }
 
-            string receivedString;
+            byte[] data;
 
             //A port unplugged mid-read makes BytesToRead/Read throw. Catch it and
             //treat it as a disconnect rather than letting it surface as an unhandled
@@ -656,26 +663,11 @@ namespace SerialPortSpy.ViewModels
             {
                 if (_serialPortService.BytesToRead < 1) return;
 
-                switch (SelectedDisplayDataOption)
-                {
-                    case DISPLAY_DECIMAL:
-                        //D3 - fixed width so columns line up in the log
-                        receivedString = FormatBytes(_serialPortService.ReadAvailableBytes(), "D3");
-                        break;
-
-                    case DISPLAY_HEX:
-                        //X2 - uppercase, zero-padded, the conventional hex-dump form
-                        receivedString = FormatBytes(_serialPortService.ReadAvailableBytes(), "X2");
-                        break;
-
-                    case DISPLAY_TEXT:
-                    default:
-                        //Decoded with the port's Encoding.Default (UTF-8 on .NET 10),
-                        //so bytes 0x80-0xFF arrive as U+FFFD rather than one glyph
-                        //each - use Hex or Decimal to inspect non-text traffic.
-                        receivedString = _serialPortService.ReadExisting();
-                        break;
-                }
+                //One read serves both events below. The same bytes cannot be read
+                //from the port twice, and the plotter needs them raw no matter
+                //which display mode is formatting the log - which is why Text
+                //mode decodes this chunk rather than calling ReadExisting().
+                data = _serialPortService.ReadAvailableBytes();
             }
             catch (Exception ex) when (ex is IOException
                                        || ex is InvalidOperationException
@@ -686,6 +678,31 @@ namespace SerialPortSpy.ViewModels
                 return;
             }
 
+            string receivedString;
+
+            switch (SelectedDisplayDataOption)
+            {
+                case DISPLAY_DECIMAL:
+                    //D3 - fixed width so columns line up in the log
+                    receivedString = FormatBytes(data, "D3");
+                    break;
+
+                case DISPLAY_HEX:
+                    //X2 - uppercase, zero-padded, the conventional hex-dump form
+                    receivedString = FormatBytes(data, "X2");
+                    break;
+
+                case DISPLAY_TEXT:
+                default:
+                    //Stateful decode with the port's encoding (UTF-8 on .NET 10):
+                    //a character split across two 1ms polls comes out whole, and
+                    //bytes 0x80-0xFF that aren't valid UTF-8 arrive as U+FFFD -
+                    //use Hex or Decimal to inspect non-text traffic.
+                    receivedString = _serialPortService.DecodeReceivedText(data);
+                    break;
+            }
+
+            BytesReceived?.Invoke(this, data);
             DataReceived?.Invoke(this, receivedString);
         }
 
