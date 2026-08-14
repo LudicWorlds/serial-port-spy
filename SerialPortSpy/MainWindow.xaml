@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{Binding Title}"
-        Width="800" Height="520" MinWidth="760" MinHeight="400"
+        Width="800" Height="586" MinWidth="760" MinHeight="440"
         Background="{StaticResource Brush.Bg}"
         Foreground="{StaticResource Brush.Text}"
         UseLayoutRounding="True"
@@ -12,6 +12,14 @@
     <!-- An implicit Window style would not apply here (implicit style lookup
          keys on the runtime type MainWindow), so brand properties are set
          directly on the element above. -->
+    <Window.InputBindings>
+        <!-- Ctrl+K is the Arduino IDE's own Clear shortcut, so it is already in
+             muscle memory for this app's user. Nothing in a read-only
+             RichTextBox claims it, so the log keeps its own Ctrl+C / Ctrl+A.
+             This resolves because the constructor assigns DataContext before
+             InitializeComponent(). -->
+        <KeyBinding Modifiers="Ctrl" Key="K" Command="{Binding ClearOutputCommand}"/>
+    </Window.InputBindings>
     <Window.Resources>
         <!-- A COM port as "COM3  USB-SERIAL CH340". App-specific data shaping
              rather than a theme token, so it lives here and not in Theme.xaml,
@@ -77,6 +85,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -157,7 +166,7 @@
         <!-- Serial log -->
         <RichTextBox Grid.Row="1" Name="RichTextBox_Data"
                      Style="{StaticResource LogBox}"
-                     Margin="12">
+                     Margin="12,12,12,8">
             <!-- Explicit menu: the default editor context menu bypasses the
                  dark implicit styles, and Cut/Paste are useless in a
                  read-only log. -->
@@ -165,12 +174,31 @@
                 <ContextMenu>
                     <MenuItem Header="Copy" Command="ApplicationCommands.Copy" InputGestureText="Ctrl+C"/>
                     <MenuItem Header="Select All" Command="ApplicationCommands.SelectAll" InputGestureText="Ctrl+A"/>
+                    <!-- Bound through PlacementTarget: a ContextMenu sits in its
+                         own popup, outside the RichTextBox's visual tree, so a
+                         plain {Binding ClearOutputCommand} is not reliable. -->
+                    <MenuItem Header="Clear" InputGestureText="Ctrl+K"
+                              Command="{Binding PlacementTarget.DataContext.ClearOutputCommand,
+                                                RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                 </ContextMenu>
             </RichTextBox.ContextMenu>
         </RichTextBox>
 
+        <!-- Log actions. A bottom bar, not a header strip above the log: Clear
+             is irreversible here (nothing sits behind the document and LogBox
+             sets IsUndoEnabled=False), so it is kept the full height of the log
+             away from Open Port rather than stacked right underneath it. It is
+             also where the eye already is, since the log auto-scrolls to the
+             end. Outline, not Primary - one filled orange button per view. -->
+        <StackPanel Grid.Row="2" HorizontalAlignment="Right" Margin="12,0,12,10">
+            <Button Style="{StaticResource Btn.Outline}"
+                    Content="Clear"
+                    Command="{Binding ClearOutputCommand}"
+                    MinWidth="90"/>
+        </StackPanel>
+
         <!-- Status bar -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="3"
                 Background="{StaticResource Brush.BgRaised}"
                 BorderBrush="{StaticResource Brush.Border}"
                 BorderThickness="0,1,0,0"

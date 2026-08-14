@@ -126,11 +126,23 @@ namespace SerialPortSpy
             _viewModel.Shutdown();
         }
 
+        /// <summary>
+        /// Blanks the log. Serves two callers - a session starting, and the user
+        /// clicking Clear mid-stream - which need different amounts of reset.
+        /// </summary>
         private void OnOutputCleared(object sender, EventArgs e)
         {
-            //Each fresh session starts on the yellow brush
+            //Each fresh log starts on the yellow brush. Safe either way: which
+            //colour a chunk gets is cosmetic.
             _useAltColor = false;
-            _pendingCr = false;
+
+            //Only when no session is running. Mid-stream this flag must survive:
+            //a CR whose LF has not arrived yet still has to pair up, or the LF
+            //lands as a second break and the cleared log opens on a blank line.
+            //IsPortOpen is the reliable test here - the open path raises this
+            //event before OpenPort(), while the flag is still false.
+            if (!_viewModel.IsPortOpen) _pendingCr = false;
+
             RichTextBox_Data.Document.Blocks.Clear();
         }
 

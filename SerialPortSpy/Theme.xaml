@@ -464,6 +464,61 @@
         </Setter>
     </Style>
 
+    <!-- Secondary actions (Clear). Same template and desktop metrics as
+         Btn.Primary - only the resting colours differ, per style guide 6.
+         Outline rather than a second orange fill because the brand allows
+         exactly one filled orange button per view, and that one is Open Port.
+
+         Contrast on Brush.Bg (#0F0F0F): the OrangeHover label is 6.82:1 (past
+         AA for 13px) and the Orange border 5.38:1 (past the 3:1 UI-component
+         threshold). On hover the fill inverts to the same near-black OnOrange
+         that Btn.Primary uses, 5.22:1 - never white on orange.
+
+         The hover/pressed Foreground setters carry no TargetName on purpose:
+         that retargets the templated parent, and the ContentPresenter inherits
+         it. Targeting the Border instead would recolour nothing. -->
+    <Style x:Key="Btn.Outline" TargetType="Button">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.OrangeHover}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Brush.Orange}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="14,0"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource Radius.Ctrl}">
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- Fill shifts only - no glow on an interactive control
+                             (style guide principle 7), same as Btn.Primary. -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Brush.Orange}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.OnOrange}"/>
+                        </Trigger>
+                        <!-- IsPressed after IsMouseOver so it wins while both are true. -->
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Brush.OrangeActive}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.OnOrange}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- The serial log. Retemplated because the default TextBoxBase template
          hardcodes light-blue hover/focus borders that recoloring can't remove.
          Selection is a translucent orange wash (see ComboBoxEditableTextBox):

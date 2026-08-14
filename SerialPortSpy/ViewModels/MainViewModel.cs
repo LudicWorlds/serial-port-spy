@@ -73,7 +73,10 @@ namespace SerialPortSpy.ViewModels
         public event EventHandler<string> DataReceived;
 
         /// <summary>
-        /// Raised when the data display should be cleared (i.e. when a port is opened).
+        /// Raised when the data display should be cleared: once as a new session
+        /// starts (before the port is opened), and whenever the user asks via
+        /// ClearOutputCommand. The view tells the two apart by IsPortOpen -
+        /// see MainWindow.OnOutputCleared, which resets more on the former.
         /// </summary>
         public event EventHandler OutputCleared;
 
@@ -132,6 +135,12 @@ namespace SerialPortSpy.ViewModels
             TogglePortCommand = new RelayCommand(
                 TogglePort,
                 () => !string.IsNullOrEmpty(SelectedPortName) && (IsPortOpen || TryGetBaudRate(out _)));
+
+            //No CanExecute: clearing an already-empty log is harmless, and gating
+            //on "is the document empty" would mean pulling view state back into
+            //the ViewModel. Deliberately live while the port is open too - wiping
+            //accumulated noise and then watching fresh output is the whole point.
+            ClearOutputCommand = new RelayCommand(ClearOutput);
         }
 
         //-----------------------------------------------
@@ -156,6 +165,8 @@ namespace SerialPortSpy.ViewModels
         public string[] DisplayDataOptions { get; }
 
         public ICommand TogglePortCommand { get; }
+
+        public ICommand ClearOutputCommand { get; }
 
         /// <summary>
         /// The selected port's name, not the SerialPortInfo itself: the combo
@@ -463,6 +474,20 @@ namespace SerialPortSpy.ViewModels
             StatusMessage = port == null || string.IsNullOrEmpty(port.Description)
                           ? READY_STATUS_MSG
                           : port.PortName + " - " + port.Description;
+        }
+
+        /// <summary>
+        /// Blanks the log on request. Raises the same event the open path does,
+        /// so there is one clear mechanism rather than two; the view decides how
+        /// much of its own state to reset (see MainWindow.OnOutputCleared).
+        ///
+        /// Touches nothing else on purpose: the port stays open, the status bar
+        /// keeps whatever it was showing, and no serial data is discarded - only
+        /// what has already been rendered goes.
+        /// </summary>
+        private void ClearOutput()
+        {
+            OutputCleared?.Invoke(this, EventArgs.Empty);
         }
 
         private void TogglePort()
